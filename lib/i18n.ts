@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { loadProfile } from "./options";
+import { as2, en2, gu2, hi2, ta2 } from "./i18n-extra";
 
 export type Lang = "en" | "hi" | "gu" | "ta" | "as";
 
@@ -120,7 +119,8 @@ const en = {
   hAgo: "{n} h ago",
 };
 
-export type Key = keyof typeof en;
+const EN = { ...en, ...en2 };
+export type Key = keyof typeof EN;
 
 // Full multilingual coverage for the alert screen and onboarding — the parts
 // people rely on in an emergency. Newer additions (occupation tips, report
@@ -270,23 +270,30 @@ const dict: Record<Exclude<Lang, "en">, Partial<Record<Key, string>>> = {
 
 export type T = (key: Key, vars?: Record<string, string | number>) => string;
 
+const EXTRA: Record<Exclude<Lang, "en">, Partial<Record<Key, string>>> = { hi: hi2, gu: gu2, ta: ta2, as: as2 };
+const TABLES: Record<string, Partial<Record<Key, string>>> = Object.fromEntries(
+  (Object.keys(dict) as Exclude<Lang, "en">[]).map((l) => [l, { ...dict[l], ...EXTRA[l] }])
+);
+
+export const isKey = (k: unknown): k is Key => typeof k === "string" && k in EN;
+
+// Variables whose value is itself a key (e.g. {hazard: "h_flood"}) are
+// translated too, so rule output can stay language-neutral.
 export function makeT(lang: string): T {
-  const table = lang in dict ? dict[lang as Exclude<Lang, "en">] : {};
+  const table = TABLES[lang] ?? {};
+  const tr = (key: Key) => table[key] ?? EN[key] ?? String(key);
   return (key, vars) => {
-    let s = table[key] ?? en[key];
-    for (const [k, v] of Object.entries(vars ?? {})) s = s.replace(`{${k}}`, String(v));
+    let s = tr(key);
+    for (const [k, v] of Object.entries(vars ?? {})) s = s.split(`{${k}}`).join(isKey(v) ? tr(v) : String(v));
     return s;
   };
 }
 
-export function useT() {
-  const [lang, setLang] = useState<Lang>("en");
-  useEffect(() => {
-    const l = (loadProfile()?.language ?? "en") as Lang;
-    setLang(l);
-    document.documentElement.lang = l;
-  }, []);
-  return { lang, t: makeT(lang) };
+// A time like "2026-09-22T14:00" (already IST from Open-Meteo) or an ISO
+// instant, shown as a short local time.
+export function shortTime(iso: string) {
+  const d = new Date(iso);
+  return Number.isFinite(d.getTime()) ? d.toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : iso;
 }
 
 export function timeAgo(iso: string, t: T) {

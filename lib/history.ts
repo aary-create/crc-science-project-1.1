@@ -1,4 +1,5 @@
 import type { Severity } from "./types";
+import { kvGet, kvSet } from "./store";
 
 const KEY = "ss:history";
 const RETAIN_MS = 5 * 24 * 60 * 60 * 1000; // 5 days, per-device
@@ -14,13 +15,9 @@ export type HistoryEntry = {
   action: string | null;
 };
 
-function read(): HistoryEntry[] {
-  try {
-    const raw = JSON.parse(localStorage.getItem(KEY) ?? "[]");
-    return Array.isArray(raw) ? raw : [];
-  } catch {
-    return [];
-  }
+async function read(): Promise<HistoryEntry[]> {
+  const raw = await kvGet<HistoryEntry[]>(KEY);
+  return Array.isArray(raw) ? raw : [];
 }
 
 function prune(entries: HistoryEntry[]): HistoryEntry[] {
@@ -29,20 +26,22 @@ function prune(entries: HistoryEntry[]): HistoryEntry[] {
 }
 
 // Appends only when the situation actually changed since the last recorded
-// entry — a five-day log of *changes*, not a bloated dump of every 5-minute
-// poll. Also records the calm return to "no alert" so gaps are visible.
-export function recordHistory(entry: Omit<HistoryEntry, "timestamp">): HistoryEntry[] {
-  const entries = prune(read());
+// entry — a five-day log of *changes*, not a bloated dump of every poll.
+// Also records the calm return to "no alert" so gaps are visible. Callers
+// must not record anything when the alert feeds were unreachable: "couldn't
+// check" is not the same as "no alert".
+export async function recordHistory(entry: Omit<HistoryEntry, "timestamp">): Promise<HistoryEntry[]> {
+  const entries = prune(await read());
   const last = entries[0];
   const changed = !last || last.hazard_type !== entry.hazard_type || last.severity !== entry.severity || last.headline !== entry.headline;
   if (changed) entries.unshift({ ...entry, timestamp: new Date().toISOString() });
   const pruned = prune(entries);
-  localStorage.setItem(KEY, JSON.stringify(pruned));
+  await kvSet(KEY, pruned);
   return pruned;
 }
 
-export function readHistory(): HistoryEntry[] {
-  const entries = prune(read());
-  localStorage.setItem(KEY, JSON.stringify(entries)); // persist the prune even without a new write
+export async function readHistory(): Promise<HistoryEntry[]> {
+  const entries = prune(await read());
+  await kvSet(KEY, entries); // persist the prune even without a new write
   return entries;
 }

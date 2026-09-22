@@ -1,19 +1,17 @@
-// Caches each alert's AI explanation on-device, keyed by alert id, for 5
-// days — the same retention as the rest of the local history. A given
-// alert's explanation is fetched from the API at most once per device;
-// every view after that, online or offline, reads this cache instantly.
+import { kvGet, kvSet } from "./store";
+
+// Caches each alert's AI explanation on-device, keyed by alert id and
+// language, for 5 days — the same retention as the rest of the local history.
+// A given alert's explanation is fetched from the API at most once per
+// device; every view after that, online or offline, reads this cache.
 const KEY = "ss:aiExplain";
 const RETAIN_MS = 5 * 24 * 60 * 60 * 1000;
 
 type Cache = Record<string, { text: string; timestamp: string }>;
 
-function read(): Cache {
-  try {
-    const raw = JSON.parse(localStorage.getItem(KEY) ?? "{}");
-    return raw && typeof raw === "object" ? raw : {};
-  } catch {
-    return {};
-  }
+async function read(): Promise<Cache> {
+  const raw = await kvGet<Cache>(KEY);
+  return raw && typeof raw === "object" ? raw : {};
 }
 
 function prune(cache: Cache): Cache {
@@ -25,12 +23,12 @@ function prune(cache: Cache): Cache {
   return out;
 }
 
-export function getCachedExplanation(alertId: string): string | null {
-  return prune(read())[alertId]?.text ?? null;
+export async function getCachedExplanation(alertId: string, lang: string): Promise<string | null> {
+  return prune(await read())[`${alertId}|${lang}`]?.text ?? null;
 }
 
-export function cacheExplanation(alertId: string, text: string) {
-  const cache = prune(read());
-  cache[alertId] = { text, timestamp: new Date().toISOString() };
-  localStorage.setItem(KEY, JSON.stringify(cache));
+export async function cacheExplanation(alertId: string, lang: string, text: string) {
+  const cache = prune(await read());
+  cache[`${alertId}|${lang}`] = { text, timestamp: new Date().toISOString() };
+  await kvSet(KEY, cache);
 }

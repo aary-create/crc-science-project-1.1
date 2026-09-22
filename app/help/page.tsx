@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { useT } from "@/lib/i18n";
+import { useT } from "@/lib/useT";
 import { darkenTiles, loadLeaflet } from "@/lib/leaflet";
 import seed from "@/data/seed.json";
 const { helplines } = seed;

@@ -1,0 +1,31 @@
+# Optional: sends SMS / WhatsApp / email alerts to confirmed subscribers by
+# calling the app's /api/dispatch every 10 minutes. Free for public repos.
+#
+# To turn on: GitHub repo → Settings → Secrets and variables → Actions
+#   Variables → New: APP_URL      = https://your-app.vercel.app
+#   Secrets   → New: CRON_SECRET  = the same value as CRON_SECRET in Vercel
+# Leave APP_URL unset and this workflow does nothing.
+#
+# GitHub pauses scheduled workflows in repos with no activity for 60 days,
+# and scheduled runs can start a few minutes late at busy times.
+name: Dispatch alerts
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    if: ${{ vars.APP_URL != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call /api/dispatch
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS -X POST "${APP_URL%/}/api/dispatch" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            --max-time 90

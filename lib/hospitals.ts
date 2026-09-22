@@ -4,7 +4,7 @@ import type { HelpPlace } from "./types";
 // Overpass API — free, keyless queries against OpenStreetMap data.
 // Proxied server-side to keep one consistent place to adjust the
 // query/timeout, same pattern as the geocoding routes.
-const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+const OVERPASS_URL = process.env.OVERPASS_URL ?? "https://overpass-api.de/api/interpreter";
 const RADIUS_M = 15000; // 15km — 8km missed real, mapped facilities in a
 // district-headquarters town; a single wider query beats a multi-step
 // retry here, since Vercel's Hobby plan caps a function at 10s total and

@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LANGUAGES, makeT } from "@/lib/i18n";
-import { DWELLINGS, OCCUPATIONS, VULNERABILITIES, loadProfile, saveProfile } from "@/lib/options";
+import { DWELLINGS, OCCUPATIONS, VULNERABILITIES, deviceId, loadProfile, saveProfile } from "@/lib/options";
+import { commonDistrictName } from "@/lib/places";
 import type { Location, Profile } from "@/lib/types";
 
 const EMPTY: Profile = { label: "", lat: NaN, lng: NaN, district: "", state: "", dwelling_type: "", occupation: "", vulnerabilities: [], language: "en" };
@@ -41,6 +42,7 @@ export default function Onboarding() {
   const [selDistrict, setSelDistrict] = useState("");
   const [selTaluka, setSelTaluka] = useState("");
   const [resolving, setResolving] = useState(false);
+  const [pickNote, setPickNote] = useState<"" | { village: string; place: string } | "notFound">("");
 
   const t = makeT(p.language);
 
@@ -132,17 +134,34 @@ export default function Onboarding() {
 
   // A village/taluka/district picked from the real government list is
   // resolved to real coordinates the same way a typed search is — through
-  // Nominatim — since the LGD directory itself carries no lat/lng.
+  // Nominatim — since the LGD directory itself carries no lat/lng. The
+  // search is bounded to Gujarat so a same-named village elsewhere in India
+  // can't be picked, and it steps down village → taluka → district until one
+  // resolves (small or newly renamed villages are often not on the map).
   async function resolveGujaratPick(village: string | null) {
-    const parts = [village, selTaluka, selDistrict, "Gujarat", "India"].filter(Boolean);
+    const district = commonDistrictName(selDistrict);
+    const attempts: { q: string[]; level: "village" | "taluka" | "district" }[] = [
+      ...(village ? [{ q: [village, selTaluka, district], level: "village" as const }, { q: [village, district], level: "village" as const }] : []),
+      { q: [selTaluka, district], level: "taluka" },
+      { q: [`${selTaluka} taluka`], level: "taluka" },
+      { q: [`${district} district`], level: "district" },
+    ];
+    const label = [village, selTaluka, selDistrict, "Gujarat"].filter(Boolean).join(", ");
     setResolving(true);
+    setPickNote("");
     try {
-      const res = await fetch(`/api/geocode/search?q=${encodeURIComponent(parts.join(", "))}`);
-      const d = await res.json();
-      if (d.results?.[0]) applyLocation(d.results[0]);
-      else applyLocation({ label: parts.slice(0, -2).join(", "), lat: NaN, lng: NaN, district: selDistrict, state: "Gujarat" });
+      for (const a of attempts) {
+        const res = await fetch(`/api/geocode/search?scope=gujarat&q=${encodeURIComponent(a.q.join(", "))}`);
+        const d = await res.json().catch(() => null);
+        const hit = d?.results?.[0] as Location | undefined;
+        if (!hit) continue;
+        applyLocation({ label, lat: hit.lat, lng: hit.lng, district: hit.district || district, state: "Gujarat" });
+        if (village && a.level !== "village") setPickNote({ village, place: a.level === "taluka" ? selTaluka : selDistrict });
+        return;
+      }
+      setPickNote("notFound");
     } catch {
-      // leave as-is; the picked names still show, just without resolved coordinates yet
+      setPickNote("notFound");
     } finally {
       setResolving(false);
     }
@@ -158,8 +177,9 @@ export default function Onboarding() {
     e.preventDefault();
     if (!p.label || !Number.isFinite(p.lat) || !Number.isFinite(p.lng) || !p.dwelling_type || !p.occupation) return setError(true);
     setSaving(true);
-    saveProfile(p);
-    await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) }).catch(() => {});
+    const withId = { ...p, device_id: deviceId() };
+    saveProfile(withId);
+    await fetch("/api/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(withId) }).catch(() => {});
     router.push("/dashboard");
   }
 
@@ -231,11 +251,14 @@ export default function Onboarding() {
                 {resolving ? t("locating") : t("useTalukaCenter")}
               </button>
             )}
+            {resolving && <p className="muted fade-pulse" style={{ margin: 0 }}>{t("locating")}</p>}
             <button type="button" className="link-btn" style={{ marginTop: 4 }} onClick={() => setMode("search")}>{t("searchInstead")}</button>
           </div>
         )}
 
         {locErr && <p className="banner" style={{ marginTop: 8 }}>{t(locErr)}</p>}
+        {pickNote === "notFound" && <p className="banner" style={{ marginTop: 8 }}>{t("villageNotFound")}</p>}
+        {pickNote && pickNote !== "notFound" && <p className="note" style={{ marginTop: 8 }}>{t("villageApprox", pickNote)}</p>}
 
         <fieldset style={fieldset}>
           <legend style={legend}>{t("homeQ")}</legend>

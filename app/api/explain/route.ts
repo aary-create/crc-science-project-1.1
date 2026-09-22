@@ -4,14 +4,15 @@ export const dynamic = "force-dynamic";
 
 const LANG_NAMES: Record<string, string> = { en: "English", hi: "Hindi", gu: "Gujarati", ta: "Tamil", as: "Assamese" };
 
-function buildPrompt(hazard: string, severity: string, agencies: string[] | string, headline: string, langName: string) {
+function buildPrompt(hazard: string, severity: string, agencies: string[] | string, headline: string, message: string, langName: string) {
+  const official = message ? `Headline: "${headline}"\nOfficial message: "${message}"` : `Headline: "${headline}"`;
   return `An official disaster alert says:
 Hazard: ${hazard}
 Severity: ${severity}
 Agencies: ${Array.isArray(agencies) ? agencies.join(", ") : agencies}
-Headline: "${headline}"
+${official}
 
-Rewrite ONLY this headline in plain, simple ${langName}, 2-3 short sentences, for someone who isn't familiar with weather/disaster terminology. Explain what the official wording means in everyday terms. Do NOT add any safety instructions, numbers, locations, or facts that are not already in the headline above — only clarify the wording given. If the headline is already simple, say so briefly rather than padding it.`;
+Rewrite ONLY this official wording in plain, simple ${langName}, 2-3 short sentences, for someone who isn't familiar with weather/disaster terminology. The official message may be in another Indian language; say what it means in ${langName}. Explain what the official wording means in everyday terms. Do NOT add any safety instructions, numbers, locations, or facts that are not already in the official wording above — only clarify the wording given. If it is already simple, say so briefly rather than padding it.`;
 }
 
 // Groq's free tier (no credit card, forever-free, ~30 req/min) runs this by
@@ -25,7 +26,7 @@ async function askGroq(key: string, prompt: string): Promise<string | null> {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
+      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
       messages: [{ role: "user", content: prompt }],
       max_tokens: 300,
       temperature: 0.3,
@@ -41,7 +42,7 @@ async function askAnthropic(key: string, prompt: string): Promise<string | null>
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 300, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({ model: process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001", max_tokens: 300, messages: [{ role: "user", content: prompt }] }),
     signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) { console.error("[explain] Anthropic returned", res.status, await res.text().catch(() => "")); return null; }
@@ -56,10 +57,11 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => null);
   const { headline, hazard, severity, agencies, language } = body ?? {};
+  const message = typeof body?.message === "string" ? body.message.slice(0, 800) : "";
   if (!headline || !hazard || !severity) {
     return NextResponse.json({ error: "headline, hazard and severity are required" }, { status: 400 });
   }
-  const prompt = buildPrompt(hazard, severity, agencies, headline, LANG_NAMES[language] ?? "English");
+  const prompt = buildPrompt(String(hazard), String(severity), agencies ?? "", String(headline).slice(0, 300), message, LANG_NAMES[language] ?? "English");
 
   try {
     const text = groqKey ? await askGroq(groqKey, prompt) : await askAnthropic(anthropicKey!, prompt);
